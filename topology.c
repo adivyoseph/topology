@@ -21,11 +21,13 @@
 
 static int init(void);
 static int display(void);
+static int smtEnabled(void);
 
 topology_t C_topology = {
 
     .init = &init,
     .display = &display,
+    .smtEnabled = &smrEnabled,
 
 };
 
@@ -127,7 +129,7 @@ static int f_getNumCores(void){
     n = getline(&s_line, &size, fp);  //includes nl
     s_line[n-1] = '\0';
     rc = atoi(&s_line[2]);
-    printf("possible %s rc = %d\n", s_line, rc+1);
+    //printf("possible %s rc = %d\n", s_line, rc+1);
     fclose(fp);
     if (s_line) free(s_line);
 
@@ -311,7 +313,7 @@ static int f_setLlc(core_t   *p_core){
         size = 0;
         n = getline(&s_line, &size, fp);  
         m = atoi(s_line);                   //m now contains llc global id
-        printf("\t llc id %d\n", m);
+        //printf("\t llc id %d\n", m);
         fclose(fp);
         if (s_line) free(s_line);
 
@@ -383,6 +385,7 @@ static int f_getCoreData(int i_core)
             s_line[m] = 0;
             i_smts[i_smt] = m+1;
             i_smt++;
+            C_topology.i_smt = 1;
         }
     }
 
@@ -413,4 +416,18 @@ static int f_getCoreData(int i_core)
 
 
     return rc;
+}
+
+
+/**
+ * @brief see if smt is enabled
+ * 
+ * @author root (1 Mar 2022)
+ * 
+ * @param void 
+ * 
+ * @return int 0 not enabled, 1 enabled
+ */
+static int smtEnabled(void){
+    return C_topology.i_smt;
 }

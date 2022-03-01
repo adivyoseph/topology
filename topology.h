@@ -13,6 +13,7 @@
  * Core affinity groups 
  * NUMA cannot be used to map or group Core afinity, peering 
  * (only memory and IO) 
+ * SMT support is automatic, support for up to smt 8 
  *  
  */
 
