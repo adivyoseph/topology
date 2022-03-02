@@ -22,12 +22,19 @@
 static int init(void);
 static int display(void);
 static int smtEnabled(void);
+static int getLlcCount(void);
+static int getCoreCount(void);
+
+static int getLlcInfo(int i_llc, llc_info_t *p_info);
 
 topology_t C_topology = {
 
     .init = &init,
     .display = &display,
-    .smtEnabled = &smrEnabled,
+    .smtEnabled = &smtEnabled,
+    .getLlcCount = &getLlcCount,
+    .getCoreCount = &getCoreCount,
+    .getLlcInfo = &getLlcInfo,
 
 };
 
@@ -430,4 +437,27 @@ static int f_getCoreData(int i_core)
  */
 static int smtEnabled(void){
     return C_topology.i_smt;
+}
+
+
+static int getLlcCount(void){
+    return C_topology.i_llcs;
+}
+
+static int getCoreCount(void){
+    return C_topology.i_cores;
+}
+
+static int getLlcInfo(int i_llc, llc_info_t *p_info){
+    int rc = 0;
+    int i;
+    llc_t *p_llc = f_getLlc(i_llc);
+    if (p_llc) {
+        p_info->i_core_n = p_llc->i_core_n;
+        for (i = 0 ; i < p_llc->i_core_n; i++) {
+            p_info->i_cores[i] = ((core_t *)p_llc->vp_cores[i])->i_gIndex;
+        }
+        rc = p_llc->i_core_n;
+    }
+    return rc;
 }

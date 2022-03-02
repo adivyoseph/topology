@@ -17,8 +17,9 @@
 #include <sys/syscall.h>
 
 #include "topology.h"
+//see header file above for comments
 
-
+extern int schedInit(int i_reserved, int i_static);
 
 /**
  * 
@@ -32,9 +33,11 @@
  */
 int main(int argc, char **argv) {
 
-    C_topology.init();
+    C_topology.init();      // scape sysfs to get topology information
 
     C_topology.display();
+
+    schedInit(2, 16);
 
     printf("Main done\n");
 

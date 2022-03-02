@@ -2,7 +2,7 @@ project('topo','c')
 
 add_global_arguments('-O2', language : 'c')
 
-src_files = ['main.c', 'topology.c']
+src_files = ['main.c', 'topology.c', 'sched.c']
 
 thread_dep = dependency('threads')
 

@@ -35,6 +35,14 @@ typedef struct llc_s {
 } llc_t;
 
 
+typedef struct llc_info_s {
+    int             i_gIndex;
+    int             i_core_n;
+    int             i_cores[CORE_PER_LLC_MAX];
+
+}llc_info_t;
+
+
 typedef struct core_s {
     struct core_s    *p_next;     // global single linked list of core's
     struct core_s    *p_peer;     // per LLC single linked list of core's
@@ -89,6 +97,10 @@ typedef struct topology_s {
 
     int (*init)(void);
     int (*display)(void);
+    int (*smtEnabled)(void);
+    int (*getLlcCount)(void);
+    int (*getCoreCount)(void);
+    int (*getLlcInfo)(int i_llc, llc_info_t *p_info);
 
 
 } topology_t;
