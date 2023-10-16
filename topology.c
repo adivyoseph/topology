@@ -34,7 +34,7 @@ typedef struct core_entry_s {
 } core_entry_t;
 typedef struct llc_group_s {
     int id;            //system wide
-    core_entry_t cores[];
+    core_entry_t cores[CORES_PER_LLC_MAX];
 } llc_group_t;
 
  typedef struct numa_node_s {
@@ -200,9 +200,9 @@ int topo_init(void){
     for (i = 0; i < __llcGroupsPerNode; i++) {
         printf("LLC %d\n", i);
         for (j = 0; j < __coresPerLLCgroup; j++) {
-            printf("\tcore %3d  cpu 0  OS_id %3d\n", j, __numaNodes[0].llc_groups[i].cores[j].cpus[0].osId );
+            printf("\tcore %3d\t cpu 0  OS_id %3d\n", j, __numaNodes[0].llc_groups[i].cores[j].cpus[0].osId );
             if (__smtOn > 0) {
-                printf("\t                 cpu 1  OS_id %3d\n",  __numaNodes[0].llc_groups[i].cores[j].cpus[1].osId );
+                printf("\t        \t cpu 1  OS_id %3d\n",  __numaNodes[0].llc_groups[i].cores[j].cpus[1].osId );
             }
         }
     }
