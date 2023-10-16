@@ -13,8 +13,8 @@ int __coresPerLLCgroup = 0;
 
 #define CPUS_PER_NODE_MAX 512
 #define NUMA_NODES_MAX 2 // only support NPS1
-#define LLC_PER_NODES_MAX 16 // 
-#define CORES_PER_LLC_MAX 16 // 
+#define LLC_PER_NODES_MAX 32 // 
+#define CORES_PER_LLC_MAX 32 // 
 typedef struct temp_cpu_s {
     int state;
     int osId;
@@ -202,7 +202,7 @@ int topo_init(void){
         for (j = 0; j < __coresPerLLCgroup; j++) {
             printf("\tcore %3d  cpu 0  OS_id %3d\n", j, __numaNodes[0].llc_groups[i].cores[j].cpus[0].osId );
             if (__smtOn > 0) {
-                printf("\tcore %3d  cpu 1  OS_id %3d\n",j,  __numaNodes[0].llc_groups[i].cores[j].cpus[1].osId );
+                printf("\t                 cpu 1  OS_id %3d\n",  __numaNodes[0].llc_groups[i].cores[j].cpus[1].osId );
             }
         }
     }
