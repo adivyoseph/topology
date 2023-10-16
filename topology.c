@@ -158,15 +158,15 @@ int topo_init(void){
    printf("__coresPerLLCgroup %d\n", j);
 
 
-   //
+   //llc id may appare in any order, seems to always start with zero
    j = 0;
    for (i = 0; i < __cpusPerNode; i++) {
        if (__tempCpus[i].llcGroupId > j) {
-           j++;
+           j = __tempCpus[i].llcGroupId;
        }
    } 
    __llcGroupsPerNode = j+1;
-  printf(" __llcGroupsPerNode %d\n", j);
+  printf(" __llcGroupsPerNode %d\n", __llcGroupsPerNode);
 
     //fill in node structures
    //TODO add support multiple nodes
