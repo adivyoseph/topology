@@ -178,13 +178,15 @@ int topo_init(void){
        while (  k>= __coresPerLLCgroup ) {
            k = k - __coresPerLLCgroup;
        }
-       printf(" i %d k%d\n", i, k);
 
          if (__smtOn > 0) {
              if (i < __cpusPerNode/2) {
+                 printf(" cpu %d  llc %d  percore %d smt 0 \n", i, j, k);
                  __numaNodes[0].llc_groups[j].cores[k].cpus[0].osId = i;
              }
              else {
+
+                 printf(" cpu %d  llc %d  percore %d  smt 1\n", i, j, k);
                  __numaNodes[0].llc_groups[j].cores[k].cpus[1].osId = i;
              }
          }
