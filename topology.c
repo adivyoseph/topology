@@ -226,6 +226,11 @@ int topo_getCoresPerLLCgroup(void){
     return __coresPerLLCgroup;
 }
 
+
+int topo_getCpusPerLLCgroup(void){
+    return __coresPerLLCgroup * (__smtOn + 1);
+}
+
 int topo_getOsId(int node, int llcgroup, int core, int cpu){
     int osId = -1;
     //TODO add checks

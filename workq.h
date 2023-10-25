@@ -18,7 +18,7 @@
 typedef struct msg_s {
     int cmd;
     int src;
-     int dst;
+    int data;
     int length;
 } msg_t;
 
