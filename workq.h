@@ -20,6 +20,7 @@ typedef struct msg_s {
     int src;
     int data;
     int length;
+    struct timespec start;
 } msg_t;
 
 

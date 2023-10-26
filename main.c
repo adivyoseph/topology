@@ -21,6 +21,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <math.h>
 
 #include "topology.h"
 #include "workq.h"
@@ -32,6 +33,20 @@ extern int  menuLoop();
 extern int  menuAddItem(char *name, int (*cbFn)(int, char *argv[]) , char *help);
 
 int cbGetStats(int argc, char *argv[] );
+
+
+#define STATS_SAMPLES_MAX 16
+typedef struct stats_entry_s {
+    long count;
+    int  samples[STATS_SAMPLES_MAX];
+}stats_entry_t;
+
+int offset_llcCpuSet;
+int stats_totalEntries;
+long stats_sampleBase = 0.1;
+long stats_sampleSlot = 0.1;
+
+
 //
 typedef struct actorThreadContext_s {
     workq_t workq_in;
@@ -49,6 +64,8 @@ typedef struct actorThreadContext_s {
 
     //stats
     unsigned int errors;
+    stats_entry_t *p_statsTx;
+    stats_entry_t *p_statsRx;
 
 } actorThreadContext_t;
 
@@ -74,7 +91,7 @@ typedef struct dir_node_s {
 dir_node_t __nodes[2];
 
 void dir_init(void){
-    int i,j;
+    int i,j,k, l;
     actorThreadContext_t *p_context;
 
     __nodes[0].llcGroupCnt = topo_getLLCgroupsCnt();
@@ -86,11 +103,24 @@ void dir_init(void){
             p_context = &__nodes[0].llcGroups[i].cpus[j].context;
             p_context->node = 0;
             p_context->llcGroup = i;
+            p_context->p_statsTx = (stats_entry_t *)malloc(stats_totalEntries *sizeof(stats_entry_t));
+            for (k = 0; k < stats_totalEntries; k++) {
+                p_context->p_statsTx[k].count = 0;
+
+            }
+            p_context->p_statsRx = (stats_entry_t *)malloc(stats_totalEntries*sizeof(stats_entry_t));
+            for (k = 0; k < stats_totalEntries; k++) {
+                p_context->p_statsRx[k].count = 0;
+                for (l = 0; l < 16; l++) {
+                    p_context->p_statsRx[k].samples[l] = 0;
+
+                }
+            }
             if (topo_getSMTOn() > 0) {
                 p_context->core = j /2;
                 p_context->cpu = j & 0x001;
                 p_context->osId = topo_getOsId(0, i,p_context->core,p_context->cpu);
-                p_context->srcId = (p_context->node << 16) | (i << 8) | (p_context->core << 1) | p_context->cpu;
+                p_context->srcId = (p_context->node << 16) | (i << 8) | j;
                 //printf("srcId %x\n", p_context->srcId);
             }
             else{
@@ -98,37 +128,21 @@ void dir_init(void){
                 p_context->cpu = 0;
                 p_context->osId = topo_getOsId(0, i,j,0);
 
-                p_context->srcId = (p_context->node << 16) | (i << 8) | (j << 1);
+                p_context->srcId = (p_context->node << 16) | (i << 8) | j;
             }
 
         }
     }
 }
 
-actorThreadContext_t *dir_getContext(int node, int llcgroup, int core, int cpu){
+actorThreadContext_t *dir_getContext(int node, int llcgroup, int cpu){
     actorThreadContext_t *p_context = NULL;
-     int i;
     if (node == 0) {
         if (llcgroup < __nodes[node].llcGroupCnt) {
-            if (core < __nodes[node].llcGroups[llcgroup].coreCnt) {
-                if (topo_getSMTOn()) {
-                    if (core == 0) {
-                        i = cpu;
-                    }
-                    else
-                    {
-                        i = (core * 2) + cpu;
-                    }
-                    if (__nodes[node].llcGroups[llcgroup].cpus[i].state > 0) {
-                        p_context = &__nodes[node].llcGroups[llcgroup].cpus[i].context;
-                    }
-                }
-                else {
-                    //ignore cpu
-                    if (__nodes[node].llcGroups[llcgroup].cpus[core].state > 0) {
-                        p_context = &__nodes[node].llcGroups[llcgroup].cpus[core].context;
-                    }
-                }
+            if (cpu < __nodes[node].llcGroups[llcgroup].cpuCnt) {
+               if (__nodes[node].llcGroups[llcgroup].cpus[cpu].state > 0) {
+                   p_context = &__nodes[node].llcGroups[llcgroup].cpus[cpu].context;
+               }
             }
         }
     }
@@ -136,28 +150,17 @@ actorThreadContext_t *dir_getContext(int node, int llcgroup, int core, int cpu){
 }
 
 
-actorThreadContext_t *dir_setContext(int node, int llcgroup, int core, int cpu){
+actorThreadContext_t *dir_setContext(int node, int llcgroup){
     actorThreadContext_t *p_context = NULL;
      int i;
     if (node == 0) {
         if (llcgroup < __nodes[node].llcGroupCnt) {
-            if (core >= 0) {
-                //TODO
-
-            }
-            else {
-                if (cpu >= 0) {
-                    //TODO
-                }
-                else {
-                    // find next avalable cpu
-                    for (i = 0; i < __nodes[node].llcGroups[llcgroup].cpuCnt; i++) {
-                        if (__nodes[node].llcGroups[llcgroup].cpus[i].state == 0) {
-                            __nodes[node].llcGroups[llcgroup].cpus[i].state = 1;
-                            p_context = &__nodes[node].llcGroups[llcgroup].cpus[i].context;
-                            break;
-                        }
-                    }
+            // find next avalable cpu
+            for (i = 0; i < __nodes[node].llcGroups[llcgroup].cpuCnt; i++) {
+                if (__nodes[node].llcGroups[llcgroup].cpus[i].state == 0) {
+                    __nodes[node].llcGroups[llcgroup].cpus[i].state = 1;
+                    p_context = &__nodes[node].llcGroups[llcgroup].cpus[i].context;
+                    break;
                 }
             }
         }
@@ -188,6 +191,22 @@ actorThreadContext_t *dir_findContext(int node, int llcgroup, int cpu, char *p_n
     return p_context;
 }
 
+
+void stats_init(void){
+    int i;
+
+    for (i = 1; i < 8; i++) {
+        if ((topo_getCpusPerLLCgroup() <= (1 << i)) &&
+            (topo_getCpusPerLLCgroup() > (1 << (i -1)))){
+            offset_llcCpuSet = (1 << i);
+            break;
+        }
+    }
+    stats_totalEntries = topo_getLLCgroupsCnt()*offset_llcCpuSet;
+}
+
+#define STATS_INDEX(a)  (( a >> 8)*offset_llcCpuSet)+(a & 0x0ff)
+
 void *th_send(void *p_arg);
 void *th_recv(void *p_arg);
 
@@ -216,7 +235,7 @@ workq_t g_workq_cli;
  */
 int main(int argc, char **argv) {
     int actorsPerLLCgroup = 0;
-    int c, i, j, k, l, m;
+    int i, j, k, l, m;
     actorThreadContext_t *p_context;
     msg_t                  msg;
     int totalReqs = 1000000;  // 1M
@@ -235,7 +254,7 @@ int main(int argc, char **argv) {
     double accum;
 
     topo_init();
-
+    stats_init();
     menuInit();
     menuAddItem("s", cbGetStats, "get stats");
 
@@ -320,7 +339,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
         for (j = 0; j < actorsPerLLCgroup; j++ ){
             //create senders
-            p_context = dir_setContext(0, i, -1, -1);
+            p_context = dir_setContext(0, i);
             if (p_context != NULL) {
                 sprintf(p_context->name, "send_%d_%d", i, j);
                 workq_init(&p_context->workq_in);
@@ -332,7 +351,7 @@ int main(int argc, char **argv) {
 
         for (j = 0; j < actorsPerLLCgroup; j++ ){
             //create receivers
-            p_context = dir_setContext(0, i, -1, -1);
+            p_context = dir_setContext(0, i );
             if (p_context != NULL) {
                 sprintf(p_context->name, "recv_%d_%d", i, j);
                 workq_init(&p_context->workq_in);
@@ -351,19 +370,17 @@ int main(int argc, char **argv) {
  */
   // send init as all threads registered
   for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
-      for (j = 0; j < topo_getCoresPerLLCgroup(); j++) {
-          for (c = 0; c < 2; c++) {
-              p_context = dir_getContext(0, i, j, c);
-              if (p_context != NULL) {
-                  msg.cmd = CMD_CTL_INIT;
-                  msg.src = -1;
-                  msg.length = 0;
-                  if(workq_write(&p_context->workq_in, &msg)){
-                      printf("%d q is full\n", p_context->srcId);
-                  }
-                  else{
-                      k++;
-                  }
+      for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+          p_context = dir_getContext(0, i, j);
+          if (p_context != NULL) {
+              msg.cmd = CMD_CTL_INIT;
+              msg.src = -1;
+              msg.length = 0;
+              if(workq_write(&p_context->workq_in, &msg)){
+                  printf("%d q is full\n", p_context->srcId);
+              }
+              else{
+                  k++;
               }
           }
       }
@@ -387,10 +404,15 @@ int main(int argc, char **argv) {
   //send start
 
   l = totalReqs/numSenders;
-  m = totalReqs - (i *(numSenders -1));  //first sender difference
+  m = totalReqs - (l *(numSenders -1));  //first sender difference
+
+  printf("reg send %d first send %d\n", l,m);
 
   clock_gettime(CLOCK_REALTIME, &start);
   for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
+      if (k >= numSenders) {
+          break;
+      }
       for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
           p_context = dir_findContext(0, i, j, "send");
           if (p_context != NULL) {
@@ -402,7 +424,6 @@ int main(int argc, char **argv) {
               else {
                   msg.length = l;
               }
-              msg.length = numSenders;
               msg.data = numRecrs;
               if(workq_write(&p_context->workq_in, &msg)){
                   printf("%d q is full\n", p_context->srcId);
@@ -445,7 +466,72 @@ int main(int argc, char **argv) {
 
 int cbGetStats(int argc, char *argv[] )
 {
+    int i, j, k, l, sumRx, sumTx;
+    actorThreadContext_t *p_context;
 
+    printf("Mapping\n");
+    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+        printf("llc_%02d  ",i);
+        for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+            printf("\t%02d", j);
+
+        }
+        printf("\n        ");
+        for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+            printf("\t%02d", __nodes[0].llcGroups[i].cpus[j].context.osId);
+        }
+
+        printf("\n        ");
+        for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+            if (__nodes[0].llcGroups[i].cpus[j].state > 0) {
+                printf("\t%.*s ", 1, __nodes[0].llcGroups[i].cpus[j].context.name);
+            }
+            else{
+                printf("\t--");
+            }
+        }
+        printf("\n");
+    }
+    printf("\nSend:\n");
+    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+        for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+            p_context = dir_findContext(0, i, j, "send");
+            if (p_context != NULL) {
+                printf("llc %02d cpu %02d  ",i,j);
+                sumTx = 0;
+                sumRx = 0;
+                for (k = 0; k < stats_totalEntries; k++) {
+                    sumTx += p_context->p_statsTx[k].count;
+                    sumRx += p_context->p_statsRx[k].count;
+                }
+                printf("%6d   %6d\n", sumTx, sumRx);
+
+                for (k = 0; k < stats_totalEntries; k++) {
+                     printf("           %02d %6ld   %6ld   --  ",k, p_context->p_statsTx[k].count, p_context->p_statsRx[k].count);
+                    for (l = 0; l <16; l++) {
+                        printf("\t%3d",p_context->p_statsRx[k].samples[l]);
+                    }
+                    printf("\n");
+                }
+            }
+        }
+    }
+    printf("\nRecv:\n");
+    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+        for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
+            p_context = dir_findContext(0, i, j, "recv");
+            if (p_context != NULL) {
+                printf("llc %02d cpu %02d  ",i,j);
+                sumTx = 0;
+                sumRx = 0;
+                for (k = 0; k < stats_totalEntries; k++) {
+                    sumTx += p_context->p_statsTx[k].count;
+                    sumRx += p_context->p_statsRx[k].count;
+                }
+                printf("%6d   %6d\n", sumTx, sumRx);
+            }
+        }
+    }
     return 0;
 }
 
@@ -477,6 +563,9 @@ void *th_send(void *p_arg){
      int send_cnt = 0;
      int send_destCnt = 0;
      //workq_t *p_workq;
+    struct timespec end;
+    double accum;
+    int debug = 0;
 
 
     CPU_ZERO(&my_set); 
@@ -540,6 +629,26 @@ void *th_send(void *p_arg){
     while (1) {
         //look for acks
         if(workq_read(&this->workq_in, &msg)){
+            clock_gettime(CLOCK_REALTIME, &end);
+            accum = ( end.tv_sec - msg.start.tv_sec ) + (double)( end.tv_nsec - msg.start.tv_nsec ) / (double)BILLION;
+            if (debug > 0) {
+                printf("rtt accum %lf\n", accum );
+            }
+            accum = trunc(accum / 0.00001);
+            if (debug > 0) {
+                printf("rtt accux %lf\n", accum );
+            }
+            i= (int)accum;
+            if (i > 15) {
+                i = 15;
+            }
+
+            if (debug > 0) {
+                printf("rtt accuy %d\n", i );
+            }
+            this->p_statsRx[STATS_INDEX(msg.src)].samples[i]++;
+            debug--;
+            this->p_statsRx[STATS_INDEX(msg.src)].count++;
             //assume ack for now
             for(i = 0; i < th_destCnt; i++){
                 if (msg.src == p_th_destTable[i].destId) {
@@ -555,11 +664,13 @@ void *th_send(void *p_arg){
                 msg.cmd = CMD_REQ;
                 msg.src = this->srcId;
                 msg.length = send_cnt;
+                clock_gettime(CLOCK_REALTIME, &msg.start);
                 if(workq_write(p_th_destTable[j].p_workq, &msg)){
                     this->errors++;
                 }
                 else {
                     //printf("%s sent REG to %08x %d\n", this->name, p_th_destTable[j].destId, send_cnt);
+                    this->p_statsTx[STATS_INDEX(p_th_destTable[j].destId)].count++;
                     p_th_destTable[j].credits--;
                     send_cnt --;
                 }
@@ -667,6 +778,7 @@ void *th_recv(void *p_arg){
 
     while (1){
         if(workq_read(&this->workq_in, &msg)){
+            this->p_statsRx[STATS_INDEX(msg.src)].count++;
             //printf("%s %08x RECV from %08x seq %d\n", this->name, this->srcId, msg.src, msg.length);
             //assume request for now
             for(i = 0; i < th_destCnt; i++){
@@ -680,6 +792,7 @@ void *th_recv(void *p_arg){
                         this->errors++;
                     }
                     else {
+                        this->p_statsTx[STATS_INDEX(p_th_destTable[i].destId)].count++;
                         //printf("%s %08x send ack to %08x seq %d\n", this->name, this->srcId, p_th_destTable[i].destId, msg.length);
                     }
                     break;

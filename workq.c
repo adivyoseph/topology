@@ -49,10 +49,11 @@ int workq_write(workq_t *p_q, msg_t *p_msg){
     else
     {
         //memcpy(&p_q->event[p_q->tail],p_msg, sizeof(msg_t));  //avoid library calls and simd usage
-        p_q->event[p_q->tail].cmd     = p_msg->cmd;
-        p_q->event[p_q->tail].src        = p_msg->src;
-        p_q->event[p_q->tail].data        = p_msg->data;
+        p_q->event[p_q->tail].cmd    = p_msg->cmd;
+        p_q->event[p_q->tail].src    = p_msg->src;
+        p_q->event[p_q->tail].data   = p_msg->data;
         p_q->event[p_q->tail].length = p_msg->length;
+        p_q->event[p_q->tail].start  = p_msg->start;
 
         //printf("=>%s write event[%d]", p_q->name, p_q->tail);
         (p_q->tail)++;
@@ -81,9 +82,10 @@ int workq_read(workq_t *p_q, msg_t *p_msg){
 
         //memcpy(p_msg,&p_q->event[p_q->head], sizeof(msg_t));
         p_msg->cmd =      p_q->event[p_q->head].cmd     ; 
-        p_msg->src =         p_q->event[p_q->head].src        ; 
-        p_msg->data =         p_q->event[p_q->head].data       ; 
-        p_msg->length = p_q->event[p_q->head].length ; 
+        p_msg->src =      p_q->event[p_q->head].src        ; 
+        p_msg->data =     p_q->event[p_q->head].data       ; 
+        p_msg->length =   p_q->event[p_q->head].length ; 
+        p_msg->start =    p_q->event[p_q->head].start;
         //printf("<=%s read event[%d]", p_q->name, p_q->head);
         (p_q->head)++;
         (p_q->head) %= FIFO_DEPTH_MAX;
