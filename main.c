@@ -25,6 +25,10 @@
 
 #include "topology.h"
 #include "workq.h"
+
+//tune
+
+#define SEND_CREDITS_MAX 4
 #define BILLION  1000000000L
 
 
@@ -33,7 +37,7 @@ extern int  menuLoop();
 extern int  menuAddItem(char *name, int (*cbFn)(int, char *argv[]) , char *help);
 
 int cbGetStats(int argc, char *argv[] );
-
+int cbSaveStats(int argc, char *argv[]);
 
 #define STATS_SAMPLES_MAX 16
 typedef struct stats_entry_s {
@@ -41,6 +45,7 @@ typedef struct stats_entry_s {
     int  samples[STATS_SAMPLES_MAX];
 }stats_entry_t;
 
+int firstLLC = 0;
 int offset_llcCpuSet;
 int stats_totalEntries;
 long stats_sampleBase = 0.1;
@@ -95,7 +100,7 @@ void dir_init(void){
     actorThreadContext_t *p_context;
 
     __nodes[0].llcGroupCnt = topo_getLLCgroupsCnt();
-    for (i = 0; i < __nodes[0].llcGroupCnt; i++) {
+    for (i = firstLLC; i < __nodes[0].llcGroupCnt; i++) {
         __nodes[0].llcGroups[i].coreCnt = topo_getCoresPerLLCgroup();
         __nodes[0].llcGroups[i].cpuCnt = __nodes[0].llcGroups[i].coreCnt * (1 + topo_getSMTOn());
         for (j = 0; j < __nodes[0].llcGroups[i].cpuCnt; j++) {
@@ -257,8 +262,9 @@ int main(int argc, char **argv) {
     stats_init();
     menuInit();
     menuAddItem("s", cbGetStats, "get stats");
+    menuAddItem("p", cbSaveStats, "save stats to file");
 
-    while((opt = getopt(argc, argv, "hc:s:r:")) != -1) 
+    while((opt = getopt(argc, argv, "hc:s:r:f:")) != -1) 
     { 
         switch(opt) 
         { 
@@ -266,6 +272,17 @@ int main(int argc, char **argv) {
             printf("usage\n");
             return 0;
             break;
+
+        case 'f':                    //first ccd
+                i = atoi(optarg);
+                if (i < topo_getLLCgroupsCnt()) {
+                    firstLLC = i;
+                }
+                else{
+                    printf("first LLC must be less tha %d\n", topo_getLLCgroupsCnt());
+                    return 0;
+                }
+                break; 
 
 
         case 'c':                    //cli cpu mapping
@@ -275,29 +292,13 @@ int main(int argc, char **argv) {
 
         case 's':                    //ag cpu mapping
                 i = atoi(optarg);
-                j = ((topo_getCpusPerLLCgroup() -1)/2)*topo_getLLCgroupsCnt();
-                if (i <= j) {
-                    numSenders = i;
-                    printf("number of senders %d\n", numSenders);
-                }
-                else {
-                    printf("On this system max senders is %d (%d not valid)\n", j, i);
-                    return 0;
-                }
+                numSenders = i;
                 break; 
 
 
         case 'r':                    //ag cpu mapping
                 i = atoi(optarg);
-                j = ((topo_getCpusPerLLCgroup() -1)/2)*topo_getLLCgroupsCnt();
-                if (i <= j) {
-                    numRecrs = i;
-                    printf("number of receivers %d\n", numRecrs);
-                }
-                else {
-                    printf("On this system max receivers is %d (%d not valid)\n", j, i);
-                    return 0;
-                }
+                numRecrs = i;
                 break; 
         default:
             break;
@@ -308,10 +309,31 @@ int main(int argc, char **argv) {
         numSenders = 4;
         printf("number of senders %d (default)\n", numSenders);
     }
+    j = ((topo_getCpusPerLLCgroup() -1)/2)*(topo_getLLCgroupsCnt() - firstLLC);
+    if (numSenders <= j) {
+        printf("number of senders %d\n", numSenders);
+    }
+    else {
+        printf("On this system max senders is %d (%d not valid)\n", j, numSenders);
+        return 0;
+    }
+
     if (numRecrs < 0) {
         numRecrs = numSenders;
         printf("number of receivers %d (default)\n", numRecrs);
     }
+
+    j = ((topo_getCpusPerLLCgroup() -1)/2)*(topo_getLLCgroupsCnt() - firstLLC);
+    if (numRecrs <= j) {
+
+        printf("number of receivers %d\n", numRecrs);
+    }
+    else {
+        printf("On this system max receivers is %d (%d not valid)\n", j, numRecrs);
+        return 0;
+    }
+
+    printf("first LLCgroup %d\n", firstLLC);
 
 
     getcpu(&cpu, &numa);
@@ -336,7 +358,7 @@ int main(int argc, char **argv) {
     actorsPerLLCgroup = (topo_getCpusPerLLCgroup() -1)/2;
     printf("actorsPerLLCgroup %d\n", actorsPerLLCgroup);
 
-    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+    for (i = firstLLC; i < topo_getLLCgroupsCnt(); i++) {
         for (j = 0; j < actorsPerLLCgroup; j++ ){
             //create senders
             p_context = dir_setContext(0, i);
@@ -369,7 +391,7 @@ int main(int argc, char **argv) {
     }
  */
   // send init as all threads registered
-  for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
+  for (i = firstLLC, k = 0; i < topo_getLLCgroupsCnt(); i++) {
       for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
           p_context = dir_getContext(0, i, j);
           if (p_context != NULL) {
@@ -409,7 +431,7 @@ int main(int argc, char **argv) {
   printf("reg send %d first send %d\n", l,m);
 
   clock_gettime(CLOCK_REALTIME, &start);
-  for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
+  for (i = firstLLC, k = 0; i < topo_getLLCgroupsCnt(); i++) {
       if (k >= numSenders) {
           break;
       }
@@ -463,6 +485,67 @@ int main(int argc, char **argv) {
   return 0;
 }
 
+int cbSaveStats(int argc, char *argv[]){
+    int n, j, l, c, k, m,sumRx, sumTx;
+    FILE *fptr;
+    actorThreadContext_t *p_context;
+
+    fptr = fopen("topology.txt", "w");
+    fprintf(fptr, "topology\n");
+    fprintf(fptr, "Node,LLCgroup,CPU, OSid, App, state\n");
+    for (n = 0; n < topo_getNodeCnt(); n++) {
+        for (l = firstLLC; l < topo_getLLCgroupsCnt(); l++ ) {
+            for (c = 0; c < topo_getCpusPerLLCgroup(); c++) {
+                fprintf(fptr, "%2d,%2d,%2d,%3d,%s,",
+                        n,l,c,
+                        __nodes[n].llcGroups[l].cpus[c].context.osId,
+                        __nodes[n].llcGroups[l].cpus[c].context.name);
+                if (__nodes[n].llcGroups[l].cpus[c].state == 1) {
+                    fprintf(fptr,"E\n");
+                }
+                else{
+                    fprintf(fptr,".\n");
+                }
+            }
+        }
+    }
+    fclose(fptr); 
+    fptr = fopen("send.txt", "w");
+    for (l = firstLLC; l < topo_getLLCgroupsCnt(); l++) {
+        for (c = 0; c< topo_getCpusPerLLCgroup(); c++) {
+            p_context = dir_findContext(0, l, c, "send");
+            if (p_context != NULL) {
+                sumTx = 0;
+                sumRx = 0;
+                for (k = 0; k < stats_totalEntries; k++) {
+                    sumTx += p_context->p_statsTx[k].count;
+                    sumRx += p_context->p_statsRx[k].count;
+                }
+                if (sumTx == 0 && sumRx == 0) {
+                     continue;
+                }
+                fprintf(fptr, "%02d,%02d,", l, c);
+                fprintf(fptr,"%6d,%6d, %4d\n", sumTx, sumRx ,p_context->errors);
+
+                for (k = firstLLC; k < topo_getLLCgroupsCnt(); k++) {
+                    for (m = 0; m < topo_getCpusPerLLCgroup(); m++) {
+                        if (p_context->p_statsTx[k*offset_llcCpuSet + m].count == 0) {
+                           continue;
+                        }
+                        fprintf(fptr, "%2d,%2d,%6ld,%6ld,--",
+                                k, m, p_context->p_statsTx[k*offset_llcCpuSet + m].count, p_context->p_statsRx[k*offset_llcCpuSet + m].count);
+                        for (j = 0; j < 16; j++) {
+                            fprintf(fptr, ",%6d",p_context->p_statsRx[k*offset_llcCpuSet + m].samples[j]);
+                        }
+                        fprintf(fptr, "\n");
+                    }
+                }
+            }
+        }
+    }
+    fclose(fptr); 
+    return 0;
+}
 
 int cbGetStats(int argc, char *argv[] )
 {
@@ -470,7 +553,7 @@ int cbGetStats(int argc, char *argv[] )
     actorThreadContext_t *p_context;
 
     printf("Mapping\n");
-    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+    for (i = firstLLC; i < topo_getLLCgroupsCnt(); i++) {
         printf("llc_%02d  ",i);
         for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
             printf("\t%02d", j);
@@ -493,7 +576,7 @@ int cbGetStats(int argc, char *argv[] )
         printf("\n");
     }
     printf("\nSend:\n");
-    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+    for (i = firstLLC; i < topo_getLLCgroupsCnt(); i++) {
         for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
             p_context = dir_findContext(0, i, j, "send");
             if (p_context != NULL) {
@@ -517,7 +600,7 @@ int cbGetStats(int argc, char *argv[] )
         }
     }
     printf("\nRecv:\n");
-    for (i = 0; i < topo_getLLCgroupsCnt(); i++) {
+    for (i = firstLLC; i < topo_getLLCgroupsCnt(); i++) {
         for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
             p_context = dir_findContext(0, i, j, "recv");
             if (p_context != NULL) {
@@ -574,7 +657,7 @@ void *th_send(void *p_arg){
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
 
-    printf("Thread_%06x PID %d %d cpu %3d %s\n", this->srcId, getpid(), gettid(), this->osId,  this->name);
+    //printf("Thread_%06x PID %d %d cpu %3d %s\n", this->srcId, getpid(), gettid(), this->osId,  this->name);
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -589,11 +672,11 @@ void *th_send(void *p_arg){
 
      p_th_destTable = malloc(i * sizeof(th_dest_entry_t));
      //populate table
-     for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
+     for (i = firstLLC, k = 0; i < topo_getLLCgroupsCnt(); i++) {
          for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
              p_context = dir_findContext(0, i, j, "recv");
              if (p_context != NULL) {
-                 p_th_destTable[k].credits = 4;
+                 p_th_destTable[k].credits = SEND_CREDITS_MAX;  //TODO change
                  p_th_destTable[k].destId = p_context->srcId;
                  p_th_destTable[k].p_workq = &p_context->workq_in;
                  k++;
@@ -635,8 +718,8 @@ void *th_send(void *p_arg){
                 printf("rtt accum %lf\n", accum );
             }
             accum = trunc(accum / 0.00001);
-            if (debug > 0) {
-                printf("rtt accux %lf\n", accum );
+            if(debug > 0) {
+                printf("rtt accuy %lf\n", accum );
             }
             i= (int)accum;
             if (i > 15) {
@@ -644,7 +727,7 @@ void *th_send(void *p_arg){
             }
 
             if (debug > 0) {
-                printf("rtt accuy %d\n", i );
+                //printf("rtt accuy %d\n", i );
             }
             this->p_statsRx[STATS_INDEX(msg.src)].samples[i]++;
             debug--;
@@ -684,7 +767,7 @@ void *th_send(void *p_arg){
             //check for outstanding acks
 
             for(i = 0; i < th_destCnt; i++){
-                if(p_th_destTable[i].credits < 4) break;
+                if(p_th_destTable[i].credits < SEND_CREDITS_MAX) break;
             }
             if (i >= th_destCnt) {
                 msg.cmd = CMD_CTL_STOP  ;
@@ -735,7 +818,7 @@ void *th_recv(void *p_arg){
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
 
-    printf("Thread_%06x PID %d %d cpu %3d %s\n", this->srcId, getpid(), gettid(), this->osId, this->name);
+    //printf("Thread_%06x PID %d %d cpu %3d %s\n", this->srcId, getpid(), gettid(), this->osId, this->name);
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -750,7 +833,7 @@ void *th_recv(void *p_arg){
 
      p_th_destTable = malloc(i * sizeof(th_dest_entry_t));
      //populate table
-     for (i = 0, k = 0; i < topo_getLLCgroupsCnt(); i++) {
+     for (i = firstLLC, k = 0; i < topo_getLLCgroupsCnt(); i++) {
          for (j = 0; j < topo_getCpusPerLLCgroup(); j++) {
              p_context = dir_findContext(0, i, j, "send");
              if (p_context != NULL) {
